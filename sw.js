@@ -1,6 +1,6 @@
 // Keeps the app opening with no signal: the page and icons come from the cache,
 // and the happy hour list is fetched fresh when online, with the last copy as a fallback.
-const CACHE = "hh-v1";
+const CACHE = "hh-v2";
 const SHELL = [
   "./",
   "index.html",

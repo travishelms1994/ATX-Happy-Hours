@@ -220,11 +220,26 @@ footer a { color: var(--accent); }
     navigator.geolocation.getCurrentPosition(p => {
       state.loc = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() };
       store.set("hh_loc", state.loc); state.locState = "ok"; render();
+      startWatch();
     }, err => {
       state.locState = err.code === 1 ? "denied" : "error"; renderLoc();
       if (!quiet) toast(err.code === 1 ? "Location is off for this site" : "Couldn't get your location");
     }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 });
   }
+
+  // While the app is open, follow the phone as it moves. Re-sort only after
+  // about a block (150 m) of movement so the list doesn't jump around.
+  let watchId = null;
+  function startWatch() {
+    if (watchId !== null || !("geolocation" in navigator)) return;
+    watchId = navigator.geolocation.watchPosition(p => {
+      const next = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() };
+      const moved = state.loc ? miles(state.loc, next) * 1609.344 : Infinity;
+      if (moved < 150) { if (state.loc) { state.loc.t = next.t; store.set("hh_loc", state.loc); } return; }
+      state.loc = next; store.set("hh_loc", next); state.locState = "ok"; render();
+    }, () => {}, { enableHighAccuracy: false, maximumAge: 60 * 1000, timeout: 30000 });
+  }
+  function stopWatch() { if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; } }
 
   function renderLoc() {
     const bar = $("locbar"); bar.innerHTML = ""; bar.className = "locbar";
@@ -235,7 +250,7 @@ footer a { color: var(--accent); }
     else if (state.loc) {
       bar.classList.add("quiet");
       const age = Math.round((Date.now() - state.loc.t) / 60000);
-      msg.textContent = "Closest first from where you are" + (age > 10 ? " (" + (age > 90 ? Math.round(age / 60) + "h" : age + " min") + " ago)" : "");
+      msg.textContent = watchId !== null && age <= 2 ? "Closest first from where you are now (live)" : "Closest first from where you were " + (age < 1 ? "just now" : (age > 90 ? Math.round(age / 60) + "h" : age + " min") + " ago");
       btn.textContent = "Update";
     } else if (state.locState === "denied") {
       msg.textContent = "Location is off. On iPhone: Settings → Privacy → Location Services → Safari Websites → While Using.";
@@ -546,7 +561,12 @@ footer a { color: var(--accent); }
     try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch (e) { toast(url); }
   });
   setInterval(render, 60 * 1000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { render(); if (state.loc && Date.now() - state.loc.t > 10 * 60 * 1000) askLocation(true); } });
+  // stop following location in the background to save battery; pick it back up on return
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { stopWatch(); return; }
+    render();
+    if (state.loc) askLocation(true);
+  });
 
   fetch("data.json", { cache: "no-cache" })
     .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
