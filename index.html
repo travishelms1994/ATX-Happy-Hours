@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Austin Happy Hours</title>
+<meta name="description" content="What's on right now in South, Downtown/Rainey and East Austin, closest first, with a map and how much happy hour is left when you get there.">
+<meta name="theme-color" content="#1f6f55">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Happy Hours">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: one phone-first column. Three views (Now / By day / Map) share a sticky filter rail; lists sort by distance from the phone. */
+:root {
+  --bg: #eef0ec;          /* limestone */
+  --surface: #fbfcf9;
+  --ink: #18242a;
+  --muted: #5b6a6c;
+  --line: #d6dbd4;
+  --accent: #1f6f55;      /* agave green */
+  --accent-ink: #ffffff;
+  --live: #c2410c;        /* neon-sign orange */
+  --live-soft: #fde8dc;
+  --chip: #e2e7e0;
+  --star: #b7791f;
+  --off: #9aa6a4;
+  --you: #2563eb;
+  --display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11181b; --surface: #182226; --ink: #e8eee9; --muted: #95a5a3; --line: #2a373b;
+    --accent: #4fb58d; --accent-ink: #0c1a14; --live: #ff8a4c; --live-soft: #3a2117; --chip: #223035; --star: #e5b04f;
+    --off: #5f6e6d; --you: #60a5fa;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+[hidden] { display: none !important; }
+.wrap { max-width: 640px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+
+header.top { padding-block: 20px 4px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--display); font-weight: 800; font-size: 2.5rem; line-height: .9; letter-spacing: .01em; text-transform: uppercase; margin: 0; }
+h1 span { color: var(--accent); }
+.clock { font-family: var(--mono); font-size: .8rem; color: var(--muted); text-align: right; display: grid; gap: 6px; justify-items: end; }
+.clock b { color: var(--ink); font-weight: 500; display: block; }
+.share { border: 1px solid var(--line); background: var(--surface); color: var(--accent); font: 700 .8rem var(--body); padding: 6px 10px; border-radius: 999px; cursor: pointer; }
+
+.views { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--chip); border-radius: 12px; padding: 4px; gap: 4px; margin-block: 12px 0; }
+.views button { border: 0; background: transparent; color: var(--ink); font: 800 1.05rem/1 var(--display); letter-spacing: .05em; text-transform: uppercase; padding: 10px 0; border-radius: 9px; cursor: pointer; }
+.views button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+.rail { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 1000; background: var(--bg); padding-block: 10px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
+.row { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.row::-webkit-scrollbar { display: none; }
+.chip { flex: 0 0 auto; border: 1px solid transparent; background: var(--chip); color: var(--ink); font: 600 .85rem/1 var(--body); padding: 9px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.sep { flex: 0 0 1px; background: var(--line); margin-inline: 2px; }
+.days { display: grid; grid-template-columns: repeat(7, 1fr); }
+.days .chip { font-family: var(--display); font-weight: 800; font-size: 1rem; letter-spacing: .04em; text-transform: uppercase; padding: 8px 0; min-width: 0; text-align: center; position: relative; }
+.days .chip.today::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.search { width: 100%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px; padding: 10px 12px; font: 500 16px var(--body); }
+
+.locbar { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 12px; margin-top: 12px; font-size: .85rem; color: var(--muted); }
+.locbar button { border: 0; background: var(--accent); color: var(--accent-ink); font: 700 .8rem var(--body); padding: 8px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.locbar.quiet { border-style: solid; }
+.locbar.quiet button { background: var(--chip); color: var(--ink); }
+
+.summary { color: var(--muted); font-size: .85rem; padding-block: 12px 2px; }
+.bucket { display: grid; gap: 10px; padding-block: 14px 4px; }
+.bucket h2 { font-family: var(--display); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; font-size: 1.25rem; margin: 0; display: flex; align-items: center; gap: 8px; }
+.bucket h2 .n { font-family: var(--mono); font-size: .8rem; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+.bucket h2 .hint { font-family: var(--body); font-size: .75rem; color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none; margin-left: auto; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 4px var(--live-soft); flex: 0 0 auto; }
+@media (prefers-reduced-motion: no-preference) { .dot { animation: pulse 2s ease-in-out infinite; } }
+@keyframes pulse { 50% { box-shadow: 0 0 0 7px transparent; } }
+details.bucket > summary { cursor: pointer; list-style: none; }
+details.bucket > summary::-webkit-details-marker { display: none; }
+details.bucket > summary h2::after { content: "Show"; font: 600 .75rem var(--body); color: var(--accent); letter-spacing: 0; text-transform: none; margin-left: 8px; }
+details.bucket[open] > summary h2::after { content: "Hide"; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; }
+.card.live { border-color: var(--live); }
+.card.done { opacity: .62; }
+.head { display: flex; align-items: flex-start; gap: 8px; }
+.name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; flex: 1; min-width: 0; }
+.meta { color: var(--muted); font-size: .8rem; font-weight: 500; display: block; }
+.dist { text-align: right; font-family: var(--mono); font-size: .78rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dist b { display: block; color: var(--ink); font-weight: 500; font-size: .9rem; }
+.star { background: none; border: 0; color: var(--muted); font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
+.star[aria-pressed="true"] { color: var(--star); }
+.times { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.time { font-family: var(--mono); font-size: .78rem; background: var(--chip); padding: 3px 7px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.status { font-size: .8rem; font-weight: 700; color: var(--accent); }
+.card.live .status { color: var(--live); }
+.leave { margin: 0; font-size: .82rem; font-weight: 600; }
+.leave.bad { color: var(--muted); font-weight: 500; }
+.deals { margin: 0; font-size: .92rem; }
+.extra { margin: 0; font-size: .85rem; background: var(--live-soft); padding: 6px 9px; border-radius: 8px; }
+.extra b { color: var(--live); }
+.foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: .8rem; }
+.tag { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; font-size: .7rem; }
+.foot a { margin-left: auto; color: var(--accent); font-weight: 700; text-decoration: none; }
+.empty { color: var(--muted); padding: 24px 4px; text-align: center; }
+
+/* map */
+.mapbox { position: relative; margin-top: 12px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+#map { width: 100%; height: min(62vh, 560px); min-height: 340px; background: var(--chip); }
+.leaflet-container { font-family: var(--body); }
+/* OpenStreetMap only comes in light, so darken it to match dark mode */
+@media (prefers-color-scheme: dark) { .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); } }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: .78rem; color: var(--muted); padding-block: 8px 0; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.sheet { display: grid; gap: 10px; padding-block: 12px 0; }
+
+footer { color: var(--muted); font-size: .78rem; padding-block: 28px 0; display: grid; gap: 4px; }
+footer a { color: var(--accent); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 999px; font-size: .85rem; font-weight: 600; z-index: 2000; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Austin<br><span>Happy Hours</span></h1>
+    <div class="clock"><div id="clock"></div><button type="button" class="share" id="share">Share</button></div>
+  </header>
+
+  <nav class="views" id="views" aria-label="View">
+    <button type="button" data-view="now">Now</button>
+    <button type="button" data-view="day">By day</button>
+    <button type="button" data-view="map">Map</button>
+  </nav>
+
+  <div class="locbar" id="locbar"></div>
+
+  <div class="rail">
+    <div class="row days" id="days" role="group" aria-label="Day"></div>
+    <div class="row" id="filters" role="group" aria-label="Filters"></div>
+    <div class="row" id="types" role="group" aria-label="Type of place"></div>
+    <input class="search" id="q" type="search" placeholder="Search a bar or a deal (oysters, margs, burgers…)" aria-label="Search">
+  </div>
+
+  <div class="summary" id="summary">Loading happy hours…</div>
+  <main id="list"></main>
+
+  <section id="mapview" hidden>
+    <div class="mapbox"><div id="map" aria-label="Map of happy hours"></div></div>
+    <div class="legend">
+      <span><i style="background:var(--live)"></i>On now</span>
+      <span><i style="background:var(--accent)"></i>Later today</span>
+      <span><i style="background:var(--off)"></i>Done or not today</span>
+      <span><i style="background:var(--you)"></i>You</span>
+    </div>
+    <div class="sheet" id="sheet"></div>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  const TZ = "America/Chicago";
+  const DAYS = ["sun","mon","tue","wed","thu","fri","sat"];
+  const DAY_LABEL = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const DAY_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const AREAS = { south: "South", downtown: "Downtown / Rainey", east: "East" };
+  const AREA_ORDER = { south: 0, downtown: 1, east: 2 };
+  const CUISINES = { asian: "Asian", mexican: "Mexican", italian: "Italian & pizza", american: "American", bbq: "BBQ & Southern", seafood: "Seafood", steak: "Steakhouse", med: "Mediterranean & French", bars: "Bars & breweries" };
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+
+  let DATA = null;
+  const state = {
+    view: "now", day: null,
+    areas: new Set(store.get("hh_areas", [])),
+    food: false, drinks: false, outside: false, saved: false,
+    cuisines: new Set(),
+    q: "", picked: [],
+    loc: store.get("hh_loc", null),      // {lat, lng, t}
+    locState: "idle"                     // idle | asking | ok | denied | error
+  };
+  let favs = new Set(store.get("hh_favs", []));
+
+  // ---- distance + drive estimate from where the phone is ----
+  function miles(a, b) {
+    const R = 3958.8, toR = x => x * Math.PI / 180;
+    const dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  // Straight-line miles × 1.3 for real streets, ~22 mph in town at happy hour, +4 min to park.
+  const driveMin = mi => Math.max(3, Math.round(mi * 1.3 / 22 * 60 + 4));
+  function withDist(s) {
+    if (!state.loc) return { mi: null, eta: null };
+    const mi = miles(state.loc, s);
+    return { mi, eta: driveMin(mi) };
+  }
+
+  function askLocation(quiet) {
+    if (!("geolocation" in navigator)) { state.locState = "error"; renderLoc(); return; }
+    if (!quiet) { state.locState = "asking"; renderLoc(); }
+    navigator.geolocation.getCurrentPosition(p => {
+      state.loc = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() };
+      store.set("hh_loc", state.loc); state.locState = "ok"; render();
+    }, err => {
+      state.locState = err.code === 1 ? "denied" : "error"; renderLoc();
+      if (!quiet) toast(err.code === 1 ? "Location is off for this site" : "Couldn't get your location");
+    }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 });
+  }
+
+  function renderLoc() {
+    const bar = $("locbar"); bar.innerHTML = ""; bar.className = "locbar";
+    const msg = document.createElement("span");
+    const btn = document.createElement("button"); btn.type = "button";
+    btn.addEventListener("click", () => askLocation(false));
+    if (state.locState === "asking") { msg.textContent = "Finding you…"; btn.textContent = "Locating"; btn.disabled = true; }
+    else if (state.loc) {
+      bar.classList.add("quiet");
+      const age = Math.round((Date.now() - state.loc.t) / 60000);
+      msg.textContent = "Closest first from where you are" + (age > 10 ? " (" + (age > 90 ? Math.round(age / 60) + "h" : age + " min") + " ago)" : "");
+      btn.textContent = "Update";
+    } else if (state.locState === "denied") {
+      msg.textContent = "Location is off. On iPhone: Settings → Privacy → Location Services → Safari Websites → While Using.";
+      btn.textContent = "Try again";
+    } else { msg.textContent = "Turn on location to sort by closest and see drive times."; btn.textContent = "Use my location"; }
+    bar.append(msg, btn);
+  }
+
+  // ---- time helpers (always Austin time) ----
+  function austinNow() {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+    const get = t => parts.find(p => p.type === t).value;
+    return { dow: DAY_LABEL.indexOf(get("weekday")), mins: parseInt(get("hour"), 10) % 24 * 60 + parseInt(get("minute"), 10) };
+  }
+  function dayList(spec) {
+    if (spec === "daily") return [0,1,2,3,4,5,6];
+    const [a, b] = spec.split("-");
+    const s = DAYS.indexOf(a);
+    if (!b) return [s];
+    const e = DAYS.indexOf(b), out = [];
+    for (let i = s; ; i = (i + 1) % 7) { out.push(i); if (i === e) break; }
+    return out;
+  }
+  function toMin(hm) { const [h, m] = hm.split(":").map(Number); return h * 60 + (m || 0); }
+  function parseWin(t) {
+    if (t === "all day") return { s: 11 * 60, e: 24 * 60, allDay: true };
+    const [a, b] = t.split("-");
+    const s = toMin(a);
+    let e = b === "close" ? 24 * 60 : toMin(b);
+    if (e <= s) e += 24 * 60;  // runs past midnight
+    return { s, e, close: b === "close" };
+  }
+  function fmt(m) {
+    m = ((m % 1440) + 1440) % 1440;
+    if (m === 0) return "12am";
+    const h = Math.floor(m / 60), mm = m % 60, ap = h >= 12 ? "pm" : "am", h12 = h % 12 || 12;
+    return h12 + (mm ? ":" + String(mm).padStart(2, "0") : "") + ap;
+  }
+  function winLabel(w) { return w.allDay ? "All day" : fmt(w.s) + "–" + (w.close ? "close" : fmt(w.e)); }
+  function dur(m) { const h = Math.floor(m / 60), mm = m % 60; return h ? (h + "h" + (mm ? " " + mm + "m" : "")) : mm + "m"; }
+
+  function windowsFor(spot, dow) { return spot.hours.filter(h => dayList(h.d).includes(dow)).map(h => parseWin(h.t)).sort((a, b) => a.s - b.s); }
+  function extrasFor(spot, dow) { return (spot.extra || []).filter(x => dayList(x.d).includes(dow)); }
+
+  function statusOf(spot, dow, now) {
+    const wins = windowsFor(spot, dow);
+    if (!now) return { kind: "day", wins, first: wins.length ? wins[0].s : 9999 };
+    const y = (dow + 6) % 7;   // a window from yesterday that runs past midnight
+    for (const w of windowsFor(spot, y)) {
+      if (w.e > 1440 && now.mins + 1440 >= w.s && now.mins + 1440 < w.e) return { kind: "live", wins, left: w.e - (now.mins + 1440), w };
+    }
+    for (const w of wins) if (now.mins >= w.s && now.mins < w.e) return { kind: "live", wins, left: w.e - now.mins, w };
+    const next = wins.find(w => w.s > now.mins);
+    if (next) return { kind: "later", wins, startsIn: next.s - now.mins, next, first: next.s };
+    return { kind: "done", wins, first: wins.length ? wins[0].s : 9999 };
+  }
+
+  const byDistance = (a, b) => (a.d.mi == null ? 0 : a.d.mi) - (b.d.mi == null ? 0 : b.d.mi) || AREA_ORDER[a.s.area] - AREA_ORDER[b.s.area] || a.s.name.localeCompare(b.s.name);
+
+  // ---- UI ----
+  const $ = id => document.getElementById(id);
+  function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { el.hidden = true; }, 2600); }
+  function chip(label, pressed, onClick, cls) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip" + (cls ? " " + cls : "");
+    b.textContent = label; b.setAttribute("aria-pressed", pressed ? "true" : "false");
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function renderRail(now) {
+    for (const b of $("views").children) b.setAttribute("aria-pressed", b.dataset.view === state.view ? "true" : "false");
+    const days = $("days"); days.innerHTML = "";
+    days.hidden = state.view !== "day";
+    const sel = state.day === null ? now.dow : state.day;
+    for (let d = 0; d < 7; d++) days.appendChild(chip(DAY_LABEL[d], sel === d, () => { state.day = d === now.dow ? null : d; render(); }, d === now.dow ? "today" : ""));
+    const f = $("filters"); f.innerHTML = "";
+    for (const [key, label] of Object.entries(AREAS)) {
+      f.appendChild(chip(label, state.areas.has(key), () => {
+        state.areas.has(key) ? state.areas.delete(key) : state.areas.add(key);
+        store.set("hh_areas", [...state.areas]); render();
+      }));
+    }
+    const sep = document.createElement("span"); sep.className = "sep"; f.appendChild(sep);
+    f.appendChild(chip("Food happy hour", state.food, () => { state.food = !state.food; render(); }));
+    f.appendChild(chip("Drink happy hour", state.drinks, () => { state.drinks = !state.drinks; render(); }));
+    f.appendChild(chip("Patio / rooftop", state.outside, () => { state.outside = !state.outside; render(); }));
+    f.appendChild(chip("★ Saved", state.saved, () => { state.saved = !state.saved; render(); }));
+    const t = $("types"); t.innerHTML = "";
+    t.appendChild(chip("Any type", state.cuisines.size === 0, () => { state.cuisines.clear(); render(); }));
+    for (const [key, label] of Object.entries(CUISINES)) {
+      t.appendChild(chip(label, state.cuisines.has(key), () => { state.cuisines.has(key) ? state.cuisines.delete(key) : state.cuisines.add(key); render(); }));
+    }
+  }
+
+  function matches(s) {
+    if (state.areas.size && !state.areas.has(s.area)) return false;
+    if (state.food && !s.tags.includes("food")) return false;
+    if (state.drinks && !s.tags.includes("drinks")) return false;
+    if (state.outside && !(s.tags.includes("patio") || s.tags.includes("rooftop"))) return false;
+    if (state.saved && !favs.has(s.name)) return false;
+    if (state.cuisines.size && !(s.cuisine || []).some(c => state.cuisines.has(c))) return false;
+    if (state.q) {
+      const hay = (s.name + " " + s.deals + " " + (s.extra || []).map(x => x.text).join(" ") + " " + s.addr + " " + (s.cuisine || []).map(c => CUISINES[c]).join(" ")).toLowerCase();
+      if (!state.q.split(/\s+/).every(w => hay.includes(w))) return false;
+    }
+    return true;
+  }
+
+  function leaveLine(st, d, now) {
+    if (d.eta == null) return null;
+    const e = d.eta;
+    if (st.kind === "live") {
+      if (st.w.close || st.w.allDay) return { text: "Leave now: there by " + fmt(now.mins + e) + ", deals run until close", ok: true };
+      const left = st.left - e;
+      if (left <= 0) return { text: "Ends before you'd get there", ok: false };
+      return { text: "Leave now: " + dur(left) + " of happy hour when you get there", ok: true };
+    }
+    if (st.kind === "later") return { text: "Leave by " + fmt(st.next.s - e) + " to be there at the start", ok: true };
+    return null;
+  }
+
+  function card(r, dow, now) {
+    const s = r.s, st = r.st, d = r.d;
+    const el = document.createElement("article");
+    el.className = "card" + (st.kind === "live" ? " live" : st.kind === "done" ? " done" : "");
+    const head = document.createElement("div"); head.className = "head";
+    const nm = document.createElement("div"); nm.className = "name"; nm.textContent = s.name;
+    const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = [AREAS[s.area], (s.cuisine || []).map(c => CUISINES[c]).join(", "), s.price].filter(Boolean).join(" · ");
+    nm.appendChild(meta);
+    head.appendChild(nm);
+    if (d.mi != null) {
+      const dist = document.createElement("div"); dist.className = "dist";
+      const mi = document.createElement("b"); mi.textContent = (d.mi < 10 ? d.mi.toFixed(1) : Math.round(d.mi)) + " mi";
+      dist.append(mi, document.createTextNode("~" + d.eta + " min drive"));
+      head.appendChild(dist);
+    }
+    const star = document.createElement("button");
+    star.type = "button"; star.className = "star"; star.textContent = favs.has(s.name) ? "★" : "☆";
+    star.setAttribute("aria-pressed", favs.has(s.name) ? "true" : "false");
+    star.setAttribute("aria-label", (favs.has(s.name) ? "Unsave " : "Save ") + s.name);
+    star.addEventListener("click", () => { favs.has(s.name) ? favs.delete(s.name) : favs.add(s.name); store.set("hh_favs", [...favs]); render(); });
+    head.appendChild(star);
+
+    const times = document.createElement("div"); times.className = "times";
+    if (st.kind === "live") { const t = document.createElement("span"); t.className = "status"; t.textContent = st.w.allDay ? "On all day" : (st.w.close ? "On until close" : "On now · " + dur(st.left) + " left"); times.appendChild(t); }
+    if (st.kind === "later") { const t = document.createElement("span"); t.className = "status"; t.textContent = "Starts in " + dur(st.startsIn); times.appendChild(t); }
+    for (const w of st.wins) { const t = document.createElement("span"); t.className = "time"; t.textContent = winLabel(w); times.appendChild(t); }
+    el.append(head, times);
+
+    const lv = now ? leaveLine(st, d, now) : null;
+    if (lv) { const p = document.createElement("p"); p.className = "leave" + (lv.ok ? "" : " bad"); p.textContent = lv.text; el.appendChild(p); }
+    const deals = document.createElement("p"); deals.className = "deals"; deals.textContent = s.deals; el.appendChild(deals);
+    for (const x of extrasFor(s, dow)) {
+      const p = document.createElement("p"); p.className = "extra";
+      const b = document.createElement("b"); b.textContent = DAY_LABEL[dow] + ": ";
+      p.append(b, document.createTextNode(x.text)); el.appendChild(p);
+    }
+    const foot = document.createElement("div"); foot.className = "foot";
+    const labels = { food: "Food", patio: "Patio", rooftop: "Rooftop" };
+    for (const t of s.tags) if (labels[t]) { const sp = document.createElement("span"); sp.className = "tag"; sp.textContent = labels[t]; foot.appendChild(sp); }
+    const a = document.createElement("a");
+    a.href = "https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=" + encodeURIComponent(s.name + ", " + s.addr + ", Austin, TX");
+    a.target = "_blank"; a.rel = "noopener"; a.textContent = "Directions →";
+    foot.appendChild(a); el.appendChild(foot);
+    return el;
+  }
+
+  function bucket(title, cards, opts) {
+    opts = opts || {};
+    const wrap = document.createElement(opts.collapsed ? "details" : "section");
+    wrap.className = "bucket";
+    const h = document.createElement("h2");
+    if (opts.dot) { const d = document.createElement("span"); d.className = "dot"; h.appendChild(d); }
+    h.appendChild(document.createTextNode(title));
+    const n = document.createElement("span"); n.className = "n"; n.textContent = cards.length; h.appendChild(n);
+    if (opts.hint) { const hn = document.createElement("span"); hn.className = "hint"; hn.textContent = opts.hint; h.appendChild(hn); }
+    if (opts.collapsed) { const sm = document.createElement("summary"); sm.appendChild(h); wrap.appendChild(sm); } else wrap.appendChild(h);
+    cards.forEach(c => wrap.appendChild(c));
+    return wrap;
+  }
+
+  function todayLists(rows, dow, now, list) {
+    const hint = state.loc ? "closest first" : "";
+    const live = rows.filter(r => r.st.kind === "live").sort(byDistance);
+    const later = rows.filter(r => r.st.kind === "later").sort(byDistance);
+    const done = rows.filter(r => r.st.kind === "done").sort(byDistance);
+    $("summary").textContent = live.length + " on now · " + later.length + " later today";
+    if (live.length) list.appendChild(bucket("On now", live.map(r => card(r, dow, now)), { dot: true, hint }));
+    else { const e = document.createElement("div"); e.className = "empty"; e.textContent = later.length ? "Nothing's on right this minute. Here's what starts later today." : "Nothing on right now with these filters."; list.appendChild(e); }
+    if (later.length) list.appendChild(bucket("Later today", later.map(r => card(r, dow, now)), { hint, collapsed: state.view === "now" && live.length > 0 }));
+    if (done.length) list.appendChild(bucket("Done for today", done.map(r => card(r, dow, now)), { collapsed: true }));
+  }
+
+  function dayLists(rows, dow, list) {
+    const groups = new Map();
+    rows.sort((a, b) => a.st.first - b.st.first).forEach(r => {
+      const w = r.st.wins[0];
+      const key = w.allDay ? -1 : Math.floor(w.s / 60);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    });
+    $("summary").textContent = rows.length + " happy hours on " + DAY_FULL[dow];
+    for (const [k, rs] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+      list.appendChild(bucket(k === -1 ? "All day" : "Starts " + fmt(k * 60), rs.sort(byDistance).map(r => card(r, dow, null)), { hint: state.loc ? "closest first" : "" }));
+    }
+  }
+
+  function render() {
+    if (!DATA) return;
+    const now = austinNow();
+    if (state.view !== "day") state.day = null;
+    renderRail(now); renderLoc();
+    const isToday = state.day === null;
+    const dow = isToday ? now.dow : state.day;
+    const clock = $("clock"); clock.innerHTML = "";
+    clock.append("Austin time");
+    const c2 = document.createElement("b"); c2.textContent = DAY_LABEL[now.dow] + " " + fmt(now.mins); clock.appendChild(c2);
+
+    const rows = DATA.spots.filter(matches).map(s => ({ s, st: statusOf(s, dow, isToday ? now : null), d: withDist(s) }));
+    const list = $("list"); list.innerHTML = "";
+    $("mapview").hidden = state.view !== "map";
+    list.hidden = state.view === "map";
+
+    if (state.view === "map") {
+      const live = rows.filter(r => r.st.kind === "live").length, later = rows.filter(r => r.st.kind === "later").length;
+      $("summary").textContent = live + " on now · " + later + " later today. Tap a pin for the deal.";
+      drawMap(rows, dow, now);
+      return;
+    }
+    const shown = rows.filter(r => r.st.wins.length || r.st.kind === "live");
+    if (!shown.length) {
+      $("summary").textContent = "";
+      const e = document.createElement("div"); e.className = "empty";
+      e.textContent = state.saved && !favs.size ? "No saved spots yet. Tap ☆ on any spot to save it." : "Nothing matches these filters on this day. Try turning one off.";
+      list.appendChild(e); return;
+    }
+    if (isToday) todayLists(shown, dow, now, list); else dayLists(shown, dow, list);
+  }
+
+  // ---- map (Leaflet + CARTO basemap) ----
+  let map = null, pinLayer = null, youLayer = null, tiles = null, fitted = false;
+  const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const dark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function ensureMap() {
+    if (map || typeof L === "undefined") return;
+    map = L.map("map", { zoomControl: true, attributionControl: true }).setView([30.26, -97.745], 13);
+    tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+    pinLayer = L.layerGroup().addTo(map); youLayer = L.layerGroup().addTo(map);
+    if (dark && dark.addEventListener) dark.addEventListener("change", () => render());
+    map.on("click", e => pickNear(e.containerPoint));
+  }
+  function pickNear(pt) {
+    const near = [];
+    pinLayer.eachLayer(m => { const p = map.latLngToContainerPoint(m.getLatLng()); if (p.distanceTo(pt) <= 18) near.push(m.options.key); });
+    state.picked = near; render();
+    if (near.length) $("sheet").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function drawMap(rows, dow, now) {
+    ensureMap();
+    if (!map) { $("sheet").innerHTML = '<div class="empty">The map didn\'t load. Check your connection and reopen the app.</div>'; return; }
+    setTimeout(() => map.invalidateSize(), 0);
+    pinLayer.clearLayers(); youLayer.clearLayers();
+    const rank = { live: 0, later: 1, done: 2, day: 2 };
+    const colors = [cssVar("--live"), cssVar("--accent"), cssVar("--off")];
+    const groups = new Map();
+    for (const r of rows) { const key = r.s.lat.toFixed(4) + "," + r.s.lng.toFixed(4); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(r); }
+    const ordered = [...groups.entries()].map(([k, rs]) => ({ k, rs, best: Math.min(...rs.map(r => rank[r.st.kind])) })).sort((a, b) => b.best - a.best);
+    for (const g of ordered) {
+      const s = g.rs[0].s;
+      const m = L.circleMarker([s.lat, s.lng], { key: g.k, radius: g.best === 0 ? 8 : 6.5, color: state.picked.includes(g.k) ? cssVar("--ink") : cssVar("--surface"), weight: 2, fillColor: colors[g.best], fillOpacity: 1, bubblingMouseEvents: false });
+      m.on("click", e => pickNear(e.containerPoint));
+      m.bindTooltip(g.rs.map(r => r.s.name).join(", "), { direction: "top", offset: [0, -6] });
+      pinLayer.addLayer(m);
+    }
+    if (state.loc) L.circleMarker([state.loc.lat, state.loc.lng], { radius: 7, color: "#fff", weight: 3, fillColor: cssVar("--you"), fillOpacity: 1, interactive: false }).addTo(youLayer);
+    if (!fitted) {
+      const pts = DATA.spots.map(s => [s.lat, s.lng]);
+      if (state.loc && miles(state.loc, { lat: 30.26, lng: -97.745 }) < 25) pts.push([state.loc.lat, state.loc.lng]);
+      map.fitBounds(pts, { padding: [20, 20] }); fitted = true;
+    }
+    const sheet = $("sheet"); sheet.innerHTML = "";
+    const chosen = state.picked.flatMap(k => groups.get(k) || []);
+    if (chosen.length) {
+      if (chosen.length > 1) { const n = document.createElement("div"); n.className = "summary"; n.textContent = chosen.length + " spots here. Zoom in to separate the pins."; sheet.appendChild(n); }
+      chosen.sort((a, b) => rank[a.st.kind] - rank[b.st.kind] || byDistance(a, b)).forEach(r => sheet.appendChild(card(r, dow, now)));
+    } else { const e = document.createElement("div"); e.className = "empty"; e.textContent = "Tap a pin to see the deal and how long it has left."; sheet.appendChild(e); }
+  }
+
+  function renderFooter() {
+    const f = $("footer"); f.innerHTML = "";
+    const d = s => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const p1 = document.createElement("div");
+    p1.append("Deals from ");
+    const a = document.createElement("a"); a.href = DATA.sourceUrl; a.target = "_blank"; a.rel = "noopener"; a.textContent = DATA.source; p1.appendChild(a);
+    p1.append(", last updated there " + d(DATA.sourceUpdated) + ". Checked " + d(DATA.checked) + ".");
+    const p2 = document.createElement("div"); p2.textContent = "Drive times are rough estimates from your location with evening traffic and parking. They aren't live traffic. Your location stays on your phone.";
+    const p3 = document.createElement("div"); p3.textContent = "Bars change deals without notice, so confirm before you go.";
+    f.append(p1, p2, p3);
+  }
+
+  // ---- wiring ----
+  for (const b of $("views").children) b.addEventListener("click", () => { state.view = b.dataset.view; state.day = null; render(); window.scrollTo(0, 0); });
+  $("q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); render(); });
+  $("share").addEventListener("click", async () => {
+    const url = location.origin + location.pathname;
+    if (navigator.share) { try { await navigator.share({ title: "Austin Happy Hours", text: "What's on right now in Austin", url }); } catch (e) {} return; }
+    try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch (e) { toast(url); }
+  });
+  setInterval(render, 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { render(); if (state.loc && Date.now() - state.loc.t > 10 * 60 * 1000) askLocation(true); } });
+
+  fetch("data.json", { cache: "no-cache" })
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d => {
+      DATA = d; renderFooter(); render();
+      // refresh location quietly if the browser already allows it; otherwise wait for a tap
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "geolocation" }).then(p => { if (p.state === "granted") askLocation(true); else if (p.state === "denied") { state.locState = "denied"; renderLoc(); } }).catch(() => {});
+      } else if (state.loc) askLocation(true);
+    })
+    .catch(() => { $("summary").textContent = "The happy hour list didn't load. Check your connection and reopen the app."; });
+
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+})();
+</script>
+</body>
+</html>
