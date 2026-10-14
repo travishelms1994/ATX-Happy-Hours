@@ -79,6 +79,18 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .locbar button { border: 0; background: var(--accent); color: var(--accent-ink); font: 700 .8rem var(--body); padding: 8px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
 .locbar.quiet { border-style: solid; }
 .locbar.quiet button { background: var(--chip); color: var(--ink); }
+.locbox { display: grid; gap: 8px; margin-top: 12px; }
+.locbox .locbar { margin-top: 0; }
+.locmodes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.locmodes button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 .85rem var(--body); padding: 9px 8px; border-radius: 10px; cursor: pointer; }
+.locmodes button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.placeform { display: flex; gap: 6px; }
+.placeform input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px; padding: 10px 12px; font: 500 16px var(--body); }
+.placeform button { border: 0; background: var(--accent); color: var(--accent-ink); font: 700 .85rem var(--body); padding: 0 16px; border-radius: 10px; cursor: pointer; }
+.placeresults { display: grid; gap: 4px; }
+.placeresults button { text-align: left; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 500 .88rem var(--body); padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+.placeresults button small { display: block; color: var(--muted); font-size: .75rem; }
+.placeresults .none { color: var(--muted); font-size: .85rem; padding: 4px 2px; }
 
 .summary { color: var(--muted); font-size: .85rem; padding-block: 12px 2px; }
 .bucket { display: grid; gap: 10px; padding-block: 14px 4px; }
@@ -145,7 +157,18 @@ footer a { color: var(--accent); }
     <button type="button" data-view="map">Map</button>
   </nav>
 
-  <div class="locbar" id="locbar"></div>
+  <div class="locbox">
+    <div class="locmodes" role="group" aria-label="Distance from">
+      <button type="button" id="mode-gps">📍 Current location</button>
+      <button type="button" id="mode-place">🔎 Type a location</button>
+    </div>
+    <div class="locbar" id="locbar"></div>
+    <form class="placeform" id="placeform" hidden>
+      <input id="placeq" type="search" placeholder="Address, place or neighborhood" aria-label="Location to search from" enterkeyhint="search">
+      <button type="submit">Search</button>
+    </form>
+    <div class="placeresults" id="placeresults"></div>
+  </div>
 
   <div class="rail">
     <div class="row days" id="days" role="group" aria-label="Day"></div>
@@ -194,9 +217,13 @@ footer a { color: var(--accent); }
     food: false, drinks: false, outside: false, saved: false,
     cuisines: new Set(),
     q: "", picked: [],
-    loc: store.get("hh_loc", null),      // {lat, lng, t}
-    locState: "idle"                     // idle | asking | ok | denied | error
+    loc: store.get("hh_loc", null),      // {lat, lng, t} from the phone
+    locState: "idle",                    // idle | asking | ok | denied | error
+    mode: store.get("hh_mode", "gps"),   // gps | place
+    place: store.get("hh_place", null)   // {label, full, lat, lng} typed in
   };
+  // where distances, drive times and directions start from
+  const origin = () => state.mode === "place" ? state.place : state.loc;
   let favs = new Set(store.get("hh_favs", []));
 
   // ---- distance + drive estimate from where the phone is ----
@@ -209,8 +236,9 @@ footer a { color: var(--accent); }
   // Straight-line miles × 1.3 for real streets, ~22 mph in town at happy hour, +4 min to park.
   const driveMin = mi => Math.max(3, Math.round(mi * 1.3 / 22 * 60 + 4));
   function withDist(s) {
-    if (!state.loc) return { mi: null, eta: null };
-    const mi = miles(state.loc, s);
+    const o = origin();
+    if (!o) return { mi: null, eta: null };
+    const mi = miles(o, s);
     return { mi, eta: driveMin(mi) };
   }
 
@@ -220,7 +248,7 @@ footer a { color: var(--accent); }
     navigator.geolocation.getCurrentPosition(p => {
       state.loc = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() };
       store.set("hh_loc", state.loc); state.locState = "ok"; render();
-      startWatch();
+      if (state.mode === "gps") startWatch();
     }, err => {
       state.locState = err.code === 1 ? "denied" : "error"; renderLoc();
       if (!quiet) toast(err.code === 1 ? "Location is off for this site" : "Couldn't get your location");
@@ -241,10 +269,63 @@ footer a { color: var(--accent); }
   }
   function stopWatch() { if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; } }
 
+  // ---- typed-in location (OpenStreetMap search, limited to the Austin area) ----
+  function setMode(m) {
+    state.mode = m; store.set("hh_mode", m);
+    if (m === "gps") { $("placeresults").innerHTML = ""; askLocation(!!state.loc); }
+    else { stopWatch(); if (!state.place) setTimeout(() => $("placeq").focus(), 0); }
+    fitted = false; render();
+  }
+  function shortName(r) {
+    const a = r.address || {};
+    const street = [a.house_number, a.road].filter(Boolean).join(" ");
+    const first = r.name || street || r.display_name.split(",")[0];
+    const where = a.neighbourhood || a.suburb || a.city || a.town || a.village || "";
+    return { label: first, sub: [first === street ? "" : street, where].filter(Boolean).join(", ") };
+  }
+  async function searchPlace(q) {
+    const box = $("placeresults"); box.innerHTML = '<div class="none">Searching…</div>';
+    try {
+      const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&bounded=1&viewbox=-98.10,30.62,-97.45,30.05&q=" + encodeURIComponent(q);
+      const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+      if (!res.ok) throw new Error(res.status);
+      const list = await res.json();
+      box.innerHTML = "";
+      if (!list.length) { box.innerHTML = '<div class="none">No match in the Austin area. Try a street address or a place name, like "Zilker Park".</div>'; return; }
+      if (list.length === 1) { pickPlace(list[0]); return; }
+      for (const r of list) {
+        const n = shortName(r);
+        const b = document.createElement("button"); b.type = "button";
+        b.append(n.label);
+        if (n.sub) { const sm = document.createElement("small"); sm.textContent = n.sub; b.appendChild(sm); }
+        b.addEventListener("click", () => pickPlace(r));
+        box.appendChild(b);
+      }
+    } catch (e) { box.innerHTML = '<div class="none">Search didn\'t work. Check your connection and try again.</div>'; }
+  }
+  function pickPlace(r) {
+    const n = shortName(r);
+    state.place = { label: n.label, full: r.display_name, lat: +r.lat, lng: +r.lon };
+    store.set("hh_place", state.place);
+    $("placeresults").innerHTML = ""; $("placeq").value = n.label; $("placeq").blur();
+    fitted = false; render(); window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function renderLoc() {
+    $("mode-gps").setAttribute("aria-pressed", state.mode === "gps" ? "true" : "false");
+    $("mode-place").setAttribute("aria-pressed", state.mode === "place" ? "true" : "false");
+    $("placeform").hidden = state.mode !== "place";
     const bar = $("locbar"); bar.innerHTML = ""; bar.className = "locbar";
     const msg = document.createElement("span");
     const btn = document.createElement("button"); btn.type = "button";
+    if (state.mode === "place") {
+      if (state.place) {
+        bar.classList.add("quiet"); msg.textContent = "Closest first from " + state.place.label;
+        btn.textContent = "Clear"; btn.addEventListener("click", () => { state.place = null; store.set("hh_place", null); $("placeq").value = ""; render(); $("placeq").focus(); });
+        bar.append(msg, btn);
+      } else { msg.textContent = "Type an address or place and tap Search."; bar.append(msg); }
+      return;
+    }
     btn.addEventListener("click", () => askLocation(false));
     if (state.locState === "asking") { msg.textContent = "Finding you…"; btn.textContent = "Locating"; btn.disabled = true; }
     else if (state.loc) {
@@ -413,7 +494,9 @@ footer a { color: var(--accent); }
     const labels = { food: "Food", patio: "Patio", rooftop: "Rooftop" };
     for (const t of s.tags) if (labels[t]) { const sp = document.createElement("span"); sp.className = "tag"; sp.textContent = labels[t]; foot.appendChild(sp); }
     const a = document.createElement("a");
-    a.href = "https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=" + encodeURIComponent(s.name + ", " + s.addr + ", Austin, TX");
+    // with a typed location, start the directions there; otherwise Maps starts from where you are
+    const from = state.mode === "place" && state.place ? "&origin=" + state.place.lat + "," + state.place.lng : "";
+    a.href = "https://www.google.com/maps/dir/?api=1&travelmode=driving" + from + "&destination=" + encodeURIComponent(s.name + ", " + s.addr + (/,/.test(s.addr) ? ", TX" : ", Austin, TX"));
     a.target = "_blank"; a.rel = "noopener"; a.textContent = "Directions →";
     foot.appendChild(a); el.appendChild(foot);
     return el;
@@ -434,7 +517,7 @@ footer a { color: var(--accent); }
   }
 
   function todayLists(rows, dow, now, list) {
-    const hint = state.loc ? "closest first" : "";
+    const hint = origin() ? "closest first" : "";
     const live = rows.filter(r => r.st.kind === "live").sort(byDistance);
     const later = rows.filter(r => r.st.kind === "later").sort(byDistance);
     const done = rows.filter(r => r.st.kind === "done").sort(byDistance);
@@ -455,7 +538,7 @@ footer a { color: var(--accent); }
     });
     $("summary").textContent = rows.length + " happy hours on " + DAY_FULL[dow];
     for (const [k, rs] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
-      list.appendChild(bucket(k === -1 ? "All day" : "Starts " + fmt(k * 60), rs.sort(byDistance).map(r => card(r, dow, null)), { hint: state.loc ? "closest first" : "" }));
+      list.appendChild(bucket(k === -1 ? "All day" : "Starts " + fmt(k * 60), rs.sort(byDistance).map(r => card(r, dow, null)), { hint: origin() ? "closest first" : "" }));
     }
   }
 
@@ -526,10 +609,14 @@ footer a { color: var(--accent); }
       m.bindTooltip(g.rs.map(r => r.s.name).join(", "), { direction: "top", offset: [0, -6] });
       pinLayer.addLayer(m);
     }
-    if (state.loc) L.circleMarker([state.loc.lat, state.loc.lng], { radius: 7, color: "#fff", weight: 3, fillColor: cssVar("--you"), fillOpacity: 1, interactive: false }).addTo(youLayer);
+    const o = origin();
+    if (o) {
+      const you = L.circleMarker([o.lat, o.lng], { radius: 7, color: "#fff", weight: 3, fillColor: cssVar("--you"), fillOpacity: 1, interactive: false }).addTo(youLayer);
+      if (state.mode === "place") you.bindTooltip(state.place.label, { permanent: true, direction: "right", offset: [8, 0] });
+    }
     if (!fitted) {
-      // start around you when you're in town; otherwise show every spot
-      if (state.loc && miles(state.loc, { lat: 30.3, lng: -97.75 }) < 30) map.setView([state.loc.lat, state.loc.lng], 13);
+      // start around you (or the place you typed) when it's in town; otherwise show every spot
+      if (o && miles(o, { lat: 30.3, lng: -97.75 }) < 30) map.setView([o.lat, o.lng], 13);
       else map.fitBounds(DATA.spots.map(s => [s.lat, s.lng]), { padding: [20, 20] });
       fitted = true;
     }
@@ -566,15 +653,20 @@ footer a { color: var(--accent); }
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { stopWatch(); return; }
     render();
-    if (state.loc) askLocation(true);
+    if (state.mode === "gps" && state.loc) askLocation(true);
   });
+  $("mode-gps").addEventListener("click", () => setMode("gps"));
+  $("mode-place").addEventListener("click", () => setMode("place"));
+  $("placeform").addEventListener("submit", e => { e.preventDefault(); const q = $("placeq").value.trim(); if (q) searchPlace(q); });
+  if (state.place) $("placeq").value = state.place.label;
 
   fetch("data.json", { cache: "no-cache" })
     .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(d => {
       DATA = d; renderFooter(); render();
       // refresh location quietly if the browser already allows it; otherwise wait for a tap
-      if (navigator.permissions && navigator.permissions.query) {
+      if (state.mode !== "gps") { /* typed location: no GPS needed */ }
+      else if (navigator.permissions && navigator.permissions.query) {
         navigator.permissions.query({ name: "geolocation" }).then(p => { if (p.state === "granted") askLocation(true); else if (p.state === "denied") { state.locState = "denied"; renderLoc(); } }).catch(() => {});
       } else if (state.loc) askLocation(true);
     })
