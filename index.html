@@ -73,6 +73,10 @@ h1 span { color: var(--accent); }
 .days .chip { font-family: var(--display); font-weight: 800; font-size: 1rem; letter-spacing: .04em; text-transform: uppercase; padding: 8px 0; min-width: 0; text-align: center; position: relative; }
 .days .chip.today::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.ratingrow { display: flex; align-items: center; gap: 12px; font-size: .85rem; font-weight: 600; }
+.ratingrow label { white-space: nowrap; min-width: 9.5em; font-variant-numeric: tabular-nums; }
+.ratingrow input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); height: 28px; }
+.rate { color: var(--star); font-weight: 700; }
 .search { width: 100%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px; padding: 10px 12px; font: 500 16px var(--body); }
 
 .locbar { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 12px; margin-top: 12px; font-size: .85rem; color: var(--muted); }
@@ -174,6 +178,10 @@ footer a { color: var(--accent); }
     <div class="row days" id="days" role="group" aria-label="Day"></div>
     <div class="row" id="filters" role="group" aria-label="Filters"></div>
     <div class="row" id="types" role="group" aria-label="Type of place"></div>
+    <div class="ratingrow">
+      <label for="minrating" id="minratinglabel">Rating: any</label>
+      <input id="minrating" type="range" min="0" max="5" step="0.1" value="0" aria-describedby="minratinglabel">
+    </div>
     <input class="search" id="q" type="search" placeholder="Search a bar or a deal (oysters, margs, burgers…)" aria-label="Search">
   </div>
 
@@ -216,6 +224,7 @@ footer a { color: var(--accent); }
     areas: new Set(store.get("hh_areas", [])),
     food: false, drinks: false, outside: false, saved: false,
     cuisines: new Set(),
+    minRating: store.get("hh_minrating", 0),
     q: "", picked: [],
     loc: store.get("hh_loc", null),      // {lat, lng, t} from the phone
     locState: "idle",                    // idle | asking | ok | denied | error
@@ -434,6 +443,7 @@ footer a { color: var(--accent); }
     if (state.outside && !(s.tags.includes("patio") || s.tags.includes("rooftop"))) return false;
     if (state.saved && !favs.has(s.name)) return false;
     if (state.cuisines.size && !(s.cuisine || []).some(c => state.cuisines.has(c))) return false;
+    if (state.minRating > 0 && !(s.rating >= state.minRating - 1e-9)) return false;
     if (state.q) {
       const hay = (s.name + " " + s.deals + " " + (s.extra || []).map(x => x.text).join(" ") + " " + s.addr + " " + (s.cuisine || []).map(c => CUISINES[c]).join(" ")).toLowerCase();
       if (!state.q.split(/\s+/).every(w => hay.includes(w))) return false;
@@ -460,7 +470,9 @@ footer a { color: var(--accent); }
     el.className = "card" + (st.kind === "live" ? " live" : st.kind === "done" ? " done" : "");
     const head = document.createElement("div"); head.className = "head";
     const nm = document.createElement("div"); nm.className = "name"; nm.textContent = s.name;
-    const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = [AREAS[s.area], (s.cuisine || []).map(c => CUISINES[c]).join(", "), s.price].filter(Boolean).join(" · ");
+    const meta = document.createElement("span"); meta.className = "meta";
+    if (s.rating) { const rt = document.createElement("span"); rt.className = "rate"; rt.textContent = "★ " + s.rating.toFixed(1); rt.title = "Google rating"; meta.append(rt, " · "); }
+    meta.append([AREAS[s.area], (s.cuisine || []).map(c => CUISINES[c]).join(", "), s.price].filter(Boolean).join(" · "));
     nm.appendChild(meta);
     head.appendChild(nm);
     if (d.mi != null) {
@@ -637,12 +649,16 @@ footer a { color: var(--accent); }
     p1.append(", last updated there " + d(DATA.sourceUpdated) + ". Checked " + d(DATA.checked) + ".");
     const p2 = document.createElement("div"); p2.textContent = "Drive times are rough estimates from your location with evening traffic and parking. They aren't live traffic. Your location stays on your phone.";
     const p3 = document.createElement("div"); p3.textContent = "Bars change deals without notice, so confirm before you go.";
-    f.append(p1, p2, p3);
+    const p4 = document.createElement("div"); p4.textContent = "★ ratings are Google star ratings as shown on public review sites, checked " + d(DATA.ratingsChecked || DATA.checked) + ". They're approximate and refreshed monthly. Spots without a rating are hidden when the rating slider is above 0.";
+    f.append(p1, p2, p3, p4);
   }
 
   // ---- wiring ----
   for (const b of $("views").children) b.addEventListener("click", () => { state.view = b.dataset.view; state.day = null; render(); window.scrollTo(0, 0); });
   $("q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); render(); });
+  const ratingLabel = () => { $("minratinglabel").textContent = state.minRating > 0 ? "Rating: " + state.minRating.toFixed(1) + "★ and up" : "Rating: any"; };
+  $("minrating").value = state.minRating; ratingLabel();
+  $("minrating").addEventListener("input", e => { state.minRating = Math.round(parseFloat(e.target.value) * 10) / 10; ratingLabel(); store.set("hh_minrating", state.minRating); render(); });
   $("share").addEventListener("click", async () => {
     const url = location.origin + location.pathname;
     if (navigator.share) { try { await navigator.share({ title: "Austin Happy Hours", text: "What's on right now in Austin", url }); } catch (e) {} return; }
