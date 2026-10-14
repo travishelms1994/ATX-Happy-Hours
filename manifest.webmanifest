@@ -1,7 +1,7 @@
 {
   "name": "Austin Happy Hours",
   "short_name": "Happy Hours",
-  "description": "What's on right now in South, Downtown/Rainey and East Austin, closest first.",
+  "description": "What's on right now across Austin, closest first.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

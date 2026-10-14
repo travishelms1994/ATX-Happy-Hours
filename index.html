@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Austin Happy Hours</title>
-<meta name="description" content="What's on right now in South, Downtown/Rainey and East Austin, closest first, with a map and how much happy hour is left when you get there.">
+<meta name="description" content="What's on right now across Austin, closest first, with a map and how much happy hour is left when you get there.">
 <meta name="theme-color" content="#1f6f55">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -179,8 +179,8 @@ footer a { color: var(--accent); }
   const DAYS = ["sun","mon","tue","wed","thu","fri","sat"];
   const DAY_LABEL = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const DAY_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  const AREAS = { south: "South", downtown: "Downtown / Rainey", east: "East" };
-  const AREA_ORDER = { south: 0, downtown: 1, east: 2 };
+  const AREAS = { south: "South", downtown: "Downtown / Rainey", east: "East", central: "Central", north: "North", west: "West" };
+  const AREA_ORDER = { south: 0, downtown: 1, east: 2, central: 3, north: 4, west: 5 };
   const CUISINES = { asian: "Asian", mexican: "Mexican", italian: "Italian & pizza", american: "American", bbq: "BBQ & Southern", seafood: "Seafood", steak: "Steakhouse", med: "Mediterranean & French", bars: "Bars & breweries" };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
@@ -528,9 +528,10 @@ footer a { color: var(--accent); }
     }
     if (state.loc) L.circleMarker([state.loc.lat, state.loc.lng], { radius: 7, color: "#fff", weight: 3, fillColor: cssVar("--you"), fillOpacity: 1, interactive: false }).addTo(youLayer);
     if (!fitted) {
-      const pts = DATA.spots.map(s => [s.lat, s.lng]);
-      if (state.loc && miles(state.loc, { lat: 30.26, lng: -97.745 }) < 25) pts.push([state.loc.lat, state.loc.lng]);
-      map.fitBounds(pts, { padding: [20, 20] }); fitted = true;
+      // start around you when you're in town; otherwise show every spot
+      if (state.loc && miles(state.loc, { lat: 30.3, lng: -97.75 }) < 30) map.setView([state.loc.lat, state.loc.lng], 13);
+      else map.fitBounds(DATA.spots.map(s => [s.lat, s.lng]), { padding: [20, 20] });
+      fitted = true;
     }
     const sheet = $("sheet"); sheet.innerHTML = "";
     const chosen = state.picked.flatMap(k => groups.get(k) || []);
